@@ -1,4 +1,5 @@
-import  HTTP_STATUS  from 'http-status-codes';
+import { UserCache } from '@service/redis/user.cache';
+import HTTP_STATUS from 'http-status-codes';
 import { IAuthDocument, ISignUpData } from './../interfaces/auth.interface';
 import { ObjectId } from 'mongodb';
 import { Request, Response } from 'express';
@@ -9,6 +10,9 @@ import { signupSchema } from '../schemes/signup';
 import { Helpers } from '@global/helpers/helpers';
 import { UploadApiResponse } from 'cloudinary';
 import { uploads } from '@global/helpers/cloudinary-upload';
+import { IUserDocument } from '@user/interface/user.interface';
+
+const userCache: UserCache = new UserCache();
 
 export class SignUp {
   @joiValidation(signupSchema)
@@ -38,8 +42,12 @@ export class SignUp {
       throw new BadRequestError('File upload: Error occurred. Try again.');
     }
 
-    res.status(HTTP_STATUS.CREATED).json({ message: 'User created successfully' });
+    // Add to redis cache
+    const userDataForCache: IUserDocument = SignUp.prototype.userData(authData, userObjectId);
+    userDataForCache.profilePicture = `https://res.cloudinary.com/dyamr9ym3/image/upload/v${result.version}/${userObjectId}`;
+    await userCache.saveUserToCache(`${userObjectId}`, uId, userDataForCache);
 
+    res.status(HTTP_STATUS.CREATED).json({ message: 'User created successfully' });
   }
   private signupData(data: ISignUpData): IAuthDocument {
     const { _id, username, email, uId, password, avatarColor } = data;
@@ -52,5 +60,42 @@ export class SignUp {
       avatarColor,
       createdAt: new Date()
     } as IAuthDocument;
+  }
+
+  private userData(data: IAuthDocument, userObjectId: ObjectId): IUserDocument {
+    const { _id, username, email, uId, password, avatarColor } = data;
+    return {
+      _id: userObjectId,
+      authId: _id,
+      uId,
+      username: Helpers.firstLetterUppercase(username),
+      email,
+      password,
+      avatarColor,
+      profilePicture: '',
+      blocked: [],
+      blockedBy: [],
+      work: '',
+      location: '',
+      school: '',
+      quote: '',
+      bgImageVersion: '',
+      bgImageId: '',
+      followersCount: 0,
+      followingCount: 0,
+      postsCount: 0,
+      notifications: {
+        messages: true,
+        reactions: true,
+        comments: true,
+        follows: true
+      },
+      social: {
+        facebook: '',
+        instagram: '',
+        twitter: '',
+        youtube: ''
+      }
+    } as unknown as IUserDocument;
   }
 }
